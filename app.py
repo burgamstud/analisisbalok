@@ -626,19 +626,6 @@ with header_left:
         "Desain Tulangan"
     )
 
-with header_right:
-
-    if st.session_state.locked:
-
-        st.success(
-            "🔒 MODEL LOCKED"
-        )
-
-    else:
-
-        st.warning(
-            "🔓 MODEL UNLOCKED"
-        )
 
 
 st.divider()
