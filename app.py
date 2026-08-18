@@ -805,12 +805,12 @@ with model_col:
 
             st.session_state.supports = [
                 {
-                    "ID": "A",
+                    "ID": "",
                     "Position": 0.0,
                     "Type": "Pin",
                 },
                 {
-                    "ID": "B",
+                    "ID": "",
                     "Position": float(L),
                     "Type": "Roll",
                 },
@@ -1515,9 +1515,9 @@ with view_col:
     LOAD_COLOR = "#C62828"
     LOAD_FILL = "rgba(198, 40, 40, 0.15)"
 
-    BEAM_COLOR = "#212121"
+    BEAM_COLOR = "#00CCFF"
     SUPPORT_COLOR = "#1565C0"
-    DIM_COLOR = "#757575"
+    DIM_COLOR = "#F70000"
 
     # ========================================================
     # FIGURE
