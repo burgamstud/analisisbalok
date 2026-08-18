@@ -86,15 +86,15 @@ DEFAULTS = {
 
     "combinations": [
         {
-            "name": "ULS 1",
+            "name": "1.4DL",
             "factors": {
                 "DL": 1.4
             }
         },
         {
-            "name": "SLS 1",
+            "name": "1.2DL 1.6LL",
             "factors": {
-                "DL": 1.0
+                "DL": 1.2
             }
         }
     ],
@@ -103,16 +103,12 @@ DEFAULTS = {
         {
             "ID": "A",
             "Position": 0.0,
-            "UX": True,
-            "UY": True,
-            "RZ": False,
+            "Type": "Pin",
         },
         {
             "ID": "B",
             "Position": 10.0,
-            "UX": False,
-            "UY": True,
-            "RZ": False,
+            "Type": "Roll",
         },
     ],
 }
@@ -295,9 +291,28 @@ def find_closest_node(nodes, x):
 
 
 def build_matrix_supports(nodes, supports):
-    """Convert support definitions into matrix DOF constraints."""
 
     result = []
+
+    support_dof = {
+        "Pin": {
+            "ux": True,
+            "uy": True,
+            "rz": False,
+        },
+
+        "Roll": {
+            "ux": False,
+            "uy": True,
+            "rz": False,
+        },
+
+        "Jepit": {
+            "ux": True,
+            "uy": True,
+            "rz": True,
+        },
+    }
 
     for support in supports:
 
@@ -305,19 +320,32 @@ def build_matrix_supports(nodes, supports):
             support["Position"]
         )
 
-        node = find_closest_node(
+        closest_node = min(
             nodes,
-            x
+            key=lambda n: abs(
+                float(n["x"]) - x
+            )
         )
 
-        result.append(
-            {
-                "node": node["id"],
-                "ux": bool(support["UX"]),
-                "uy": bool(support["UY"]),
-                "rz": bool(support["RZ"]),
-            }
+        support_type = support.get(
+            "Type",
+            "Pin",
         )
+
+        dof = support_dof.get(
+            support_type,
+            support_dof["Pin"],
+        )
+
+        result.append({
+
+            "node": closest_node["id"],
+
+            "ux": dof["ux"],
+            "uy": dof["uy"],
+            "rz": dof["rz"],
+
+        })
 
     return result
 
@@ -618,7 +646,7 @@ header_left, header_right = st.columns(
 with header_left:
 
     st.title(
-        "🏗️ BALOK SEDERHANA"
+        "BALOK SEDERHANA"
     )
 
     st.caption(
@@ -686,7 +714,7 @@ model_col, view_col = st.columns(
 with model_col:
 
     st.subheader(
-        "🏗️ Model Balok"
+        "Model Balok"
     )
 
     if st.session_state.locked:
@@ -758,7 +786,7 @@ with model_col:
             f"{I:.6f} m⁴",
         )
 
-    # ========================================================
+        # ========================================================
     # SUPPORTS
     # ========================================================
 
@@ -766,33 +794,56 @@ with model_col:
 
         st.markdown(
             '<div class="section-title">Tumpuan</div>',
-            unsafe_allow_html=True,
+            unsafe_allow_html=True
         )
 
-        # Sync default support B with current L
-        if not st.session_state.locked:
+        # ----------------------------------------------------
+        # Default supports
+        # ----------------------------------------------------
 
-            if len(
-                st.session_state.supports
-            ) >= 2:
+        if "supports" not in st.session_state:
 
-                st.session_state.supports[1][
-                    "Position"
-                ] = float(L)
+            st.session_state.supports = [
+                {
+                    "ID": "A",
+                    "Position": 0.0,
+                    "Type": "Pin",
+                },
+                {
+                    "ID": "B",
+                    "Position": float(L),
+                    "Type": "Roll",
+                },
+            ]
+
+        # ----------------------------------------------------
+        # DataFrame
+        # ----------------------------------------------------
 
         support_df = pd.DataFrame(
             st.session_state.supports
         )
 
+        # ----------------------------------------------------
+        # Data Editor
+        # ----------------------------------------------------
+
         edited_supports = st.data_editor(
+
             support_df,
+
             num_rows="dynamic",
+
             use_container_width=True,
+
             disabled=st.session_state.locked,
+
             column_config={
+
                 "ID": st.column_config.TextColumn(
                     "ID",
                     width="small",
+                    required=True,
                 ),
 
                 "Position": st.column_config.NumberColumn(
@@ -800,29 +851,38 @@ with model_col:
                     min_value=0.0,
                     max_value=float(L),
                     step=0.10,
+                    format="%.2f",
                 ),
 
-                "UX": st.column_config.CheckboxColumn(
-                    "UX"
-                ),
-
-                "UY": st.column_config.CheckboxColumn(
-                    "UY"
-                ),
-
-                "RZ": st.column_config.CheckboxColumn(
-                    "RZ"
+                "Type": st.column_config.SelectboxColumn(
+                    "Tipe Tumpuan",
+                    options=[
+                        "Pin",
+                        "Roll",
+                        "Jepit",
+                    ],
+                    required=True,
                 ),
             },
+
             key="support_editor",
         )
 
+        # ----------------------------------------------------
+        # Simpan perubahan
+        # ----------------------------------------------------
+
         if not st.session_state.locked:
 
-            st.session_state.supports = (
+            new_supports = (
                 edited_supports
+                .fillna("")
                 .to_dict("records")
             )
+
+            if new_supports != st.session_state.supports:
+
+                st.session_state.supports = new_supports
 
     # ========================================================
     # MATERIAL
@@ -1446,30 +1506,61 @@ with model_col:
 
 with view_col:
 
-    st.subheader(
-        "📐 Model Struktur"
-    )
+    st.subheader("Model Struktur")
 
     # ========================================================
-    # BEAM MODEL
+    # VISUAL SETTINGS
+    # ========================================================
+
+    LOAD_COLOR = "#C62828"
+    LOAD_FILL = "rgba(198, 40, 40, 0.15)"
+
+    BEAM_COLOR = "#212121"
+    SUPPORT_COLOR = "#1565C0"
+    DIM_COLOR = "#757575"
+
+    # ========================================================
+    # FIGURE
     # ========================================================
 
     fig = go.Figure()
 
-    # Beam
+    # ========================================================
+    # VISUAL SCALE
+    # ========================================================
+
+    beam_y = 0.0
+
+    # Tinggi visual panah beban titik
+    point_arrow_y = 1.00
+
+    # Tinggi visual UDL
+    udl_arrow_y = 0.5
+
+    # Posisi garis dimensi
+    dim_y = -0.5
+
+    # ========================================================
+    # BEAM
+    # ========================================================
+
     fig.add_trace(
         go.Scatter(
             x=[0, L],
-            y=[0, 0],
+            y=[beam_y, beam_y],
             mode="lines",
-            line=dict(width=8),
+            line=dict(
+                width=8,
+                color=BEAM_COLOR,
+            ),
+            hoverinfo="skip",
             showlegend=False,
         )
     )
 
-    # --------------------------------------------------------
-    # Supports
-    # --------------------------------------------------------
+    # ========================================================
+    # SUPPORTS
+    # ========================================================
 
     supports = st.session_state.supports
 
@@ -1479,76 +1570,251 @@ with view_col:
             support["Position"]
         )
 
-        if support["UY"]:
+        support_type = support.get(
+            "Type",
+            "Pin",
+        )
 
-            fig.add_trace(
-                go.Scatter(
-                    x=[x],
-                    y=[-0.12],
-                    mode="markers",
-                    marker=dict(
-                        symbol="triangle-up",
-                        size=20,
-                    ),
-                    showlegend=False,
-                )
-            )
 
-        else:
+        # --------------------------------------------------------
+        # PIN
+        # --------------------------------------------------------
 
-            fig.add_trace(
-                go.Scatter(
-                    x=[x],
-                    y=[-0.10],
-                    mode="markers",
-                    marker=dict(
-                        symbol="circle",
-                        size=15,
-                    ),
-                    showlegend=False,
-                )
-            )
+        if support_type == "Pin":
+
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[x],
+                            y=[-0.1],
+                            mode="markers",
+                            marker=dict(
+                                symbol="triangle-up",
+                                size=20,
+                            ),
+                            showlegend=False,
+                        )
+                    )
+
+        # --------------------------------------------------------
+        # ROLL
+        # --------------------------------------------------------
+
+        elif support_type == "Roll":
+
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[x],
+                            y=[-0.1],
+                            mode="markers",
+                            marker=dict(
+                                symbol="circle",
+                                size=15,
+                            ),
+                            showlegend=False,
+                        )
+                    )
+
+        # --------------------------------------------------------
+        # JEPIT
+        # --------------------------------------------------------
+
+        elif support_type == "Jepit":
+
+                    fig.add_shape(
+                        type="rect",
+
+                        x0=x - 0.1,
+                        x1=x + 0.1,
+
+                        y0=-0.1,
+                        y1=+0.1,
+
+                        line=dict(
+                            width=1,
+                        ),
+
+                        fillcolor="#1565C0",
+                    )
+
+                    # Garis hatch jepit
+                    hatch_x = np.linspace(
+                        x - 0.05 * L,
+                        x + 0.05 * L,
+                        6,
+                    )
+
+                    for hx in hatch_x:
+
+                        fig.add_shape(
+                            type="line",
+
+                            x0=hx,
+                            y0=-0.01,
+
+                            x1=hx - 0.025 * L,
+                            y1=-0.22,
+
+                            line=dict(
+                                width=0,
+                            ),
+                        )
+
+        # --------------------------------------------------------
+        # SUPPORT LABEL
+        # --------------------------------------------------------
 
         fig.add_annotation(
             x=x,
-            y=-0.35,
+            y=-0.2,
+
             text=(
                 f"<b>{support['ID']}</b>"
+                f"<br>{support_type}"
             ),
+
             showarrow=False,
         )
 
+        # ----------------------------------------------------
+        # Support ID
+        # ----------------------------------------------------
+
+        fig.add_annotation(
+            x=x,
+            y=-0.38,
+            text=f"<b>{support['ID']}</b>",
+            showarrow=False,
+            font=dict(
+                size=13,
+                color=SUPPORT_COLOR,
+            ),
+        )
+
+    # ========================================================
+    # DIMENSION LINE
+    # ========================================================
+
     # --------------------------------------------------------
-    # Dimension
+    # Main dimension line
+    # --------------------------------------------------------
+
+    fig.add_shape(
+        type="line",
+        x0=0,
+        x1=L,
+        y0=dim_y,
+        y1=dim_y,
+        line=dict(
+            width=2,
+            color=DIM_COLOR,
+        ),
+    )
+
+    # ========================================================
+    # DIMENSION EXTENSION OFFSET
+    # ========================================================
+
+    dim_offset = 0.30
+
+    # Left extension line
+    fig.add_shape(
+        type="line",
+        x0=0,
+        x1=0,
+        y0=-dim_offset,
+        y1=dim_y,
+        line=dict(
+            width=1,
+            color=DIM_COLOR,
+        ),
+    )
+
+    # Right extension line
+    fig.add_shape(
+        type="line",
+        x0=L,
+        x1=L,
+        y0=-dim_offset,
+        y1=dim_y,
+        line=dict(
+            width=1,
+            color=DIM_COLOR,
+        ),
+    )
+
+    # --------------------------------------------------------
+    # Dimension arrow — left
+    # --------------------------------------------------------
+
+    fig.add_annotation(
+        x=0,
+        y=dim_y,
+        ax=0.30 * L,
+        ay=dim_y,
+        xref="x",
+        yref="y",
+        axref="x",
+        ayref="y",
+        text="",
+        showarrow=True,
+        arrowhead=2,
+        arrowsize=1,
+        arrowwidth=1.5,
+        arrowcolor=DIM_COLOR,
+    )
+
+    # --------------------------------------------------------
+    # Dimension arrow — right
+    # --------------------------------------------------------
+
+    fig.add_annotation(
+        x=L,
+        y=dim_y,
+        ax=0.70 * L,
+        ay=dim_y,
+        xref="x",
+        yref="y",
+        axref="x",
+        ayref="y",
+        text="",
+        showarrow=True,
+        arrowhead=2,
+        arrowsize=1,
+        arrowwidth=1.5,
+        arrowcolor=DIM_COLOR,
+    )
+
+    # --------------------------------------------------------
+    # Dimension value
     # --------------------------------------------------------
 
     fig.add_annotation(
         x=L / 2,
-        y=-0.8,
-        text=f"L = {L:.2f} m",
+        y=dim_y + 0.12,
+        text=f"<b>L = {L:.2f} m</b>",
         showarrow=False,
+        font=dict(
+            size=14,
+            color=DIM_COLOR,
+        ),
     )
 
     # ========================================================
     # LOADS
     # ========================================================
 
-    for case_name in (
-        st.session_state.case_order
-    ):
+    for case_name in st.session_state.case_order:
 
-        for load in (
-            st.session_state.cases.get(
-                case_name,
-                []
-            )
+        for load in st.session_state.cases.get(
+            case_name,
+            []
         ):
 
             load_type = load["type"]
 
-            # ------------------------------------------------
-            # Point Load
-            # ------------------------------------------------
+            # =================================================
+            # POINT LOAD
+            # =================================================
 
             if load_type == "Point Load":
 
@@ -1560,44 +1826,72 @@ with view_col:
                     load["magnitude"]
                 )
 
-                arrow_y = (
-                    1.15
-                    if magnitude >= 0
-                    else -1.15
-                )
+                # ------------------------------------------------
+                # Direction
+                # ------------------------------------------------
 
-                label_y = (
-                    1.45
-                    if magnitude >= 0
-                    else -1.45
-                )
+                if magnitude >= 0:
+
+                    # Positive = downward
+                    arrow_y = point_arrow_y
+                    label_y = 1.30
+
+                else:
+
+                    # Negative = upward
+                    arrow_y = -point_arrow_y
+                    label_y = -1.30
+
+                # ------------------------------------------------
+                # Load arrow
+                # ------------------------------------------------
 
                 fig.add_annotation(
                     x=x_load,
-                    y=0,
+                    y=beam_y,
                     ax=x_load,
                     ay=arrow_y,
+
+                    xref="x",
+                    yref="y",
+                    axref="x",
+                    ayref="y",
+
                     text="",
+
                     showarrow=True,
+
                     arrowhead=2,
                     arrowsize=1.2,
                     arrowwidth=2.5,
+                    arrowcolor=LOAD_COLOR,
                 )
+
+                # ------------------------------------------------
+                # Load label
+                # ------------------------------------------------
 
                 fig.add_annotation(
                     x=x_load,
                     y=label_y,
+
                     text=(
                         f"<b>{case_name}</b><br>"
                         f"{load['name']}<br>"
-                        f"{magnitude:.2f} kN"
+                        f"<b>{magnitude:.2f} kN</b>"
                     ),
+
                     showarrow=False,
+
+                    font=dict(
+                        size=12,
+                        color=LOAD_COLOR,
+                    ),
                 )
 
-            # ------------------------------------------------
+            # =================================================
             # UDL
-            # ------------------------------------------------
+            # =================================================
 
             elif load_type == "UDL":
 
@@ -1613,17 +1907,99 @@ with view_col:
                     load["magnitude"]
                 )
 
-                arrow_y = (
-                    0.95
-                    if magnitude >= 0
-                    else -0.95
+                # ------------------------------------------------
+                # Validation
+                # ------------------------------------------------
+
+                if end <= start:
+
+                    continue
+
+                # ------------------------------------------------
+                # Direction
+                # ------------------------------------------------
+
+                if magnitude >= 0:
+
+                    # Positive = downward
+                    fill_y = udl_arrow_y
+                    label_y = 1.25
+
+                else:
+
+                    # Negative = upward
+                    fill_y = -udl_arrow_y
+                    label_y = -1.25
+
+                # =================================================
+                # UDL FILL
+                # =================================================
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=[
+                            start,
+                            end,
+                            end,
+                            start,
+                            start,
+                        ],
+
+                        y=[
+                            beam_y,
+                            beam_y,
+                            fill_y,
+                            fill_y,
+                            beam_y,
+                        ],
+
+                        mode="lines",
+
+                        fill="toself",
+
+                        fillcolor=LOAD_FILL,
+
+                        line=dict(
+                            width=1,
+                            color=LOAD_COLOR,
+                        ),
+
+                        hoverinfo="skip",
+                        showlegend=False,
+                    )
                 )
 
-                label_y = (
-                    1.3
-                    if magnitude >= 0
-                    else -1.3
+                # =================================================
+                # UDL TOP LINE
+                # =================================================
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=[
+                            start,
+                            end,
+                        ],
+
+                        y=[
+                            fill_y,
+                            fill_y,
+                        ],
+
+                        mode="lines",
+
+                        line=dict(
+                            width=2,
+                            color=LOAD_COLOR,
+                        ),
+
+                        hoverinfo="skip",
+                        showlegend=False,
+                    )
                 )
+
+                # =================================================
+                # UDL ARROWS
+                # =================================================
 
                 xs = np.linspace(
                     start,
@@ -1635,30 +2011,51 @@ with view_col:
 
                     fig.add_annotation(
                         x=x_load,
-                        y=0,
+                        y=beam_y,
+
                         ax=x_load,
-                        ay=arrow_y,
+                        ay=fill_y,
+
+                        xref="x",
+                        yref="y",
+                        axref="x",
+                        ayref="y",
+
                         text="",
+
                         showarrow=True,
+
                         arrowhead=2,
-                        arrowsize=0.6,
+                        arrowsize=0.7,
                         arrowwidth=1.4,
+                        arrowcolor=LOAD_COLOR,
                     )
+
+                # =================================================
+                # UDL LABEL
+                # =================================================
 
                 fig.add_annotation(
                     x=(start + end) / 2,
                     y=label_y,
+
                     text=(
                         f"<b>{case_name}</b><br>"
                         f"{load['name']}<br>"
-                        f"{magnitude:.2f} kN/m"
+                        f"<b>{magnitude:.2f} kN/m</b>"
                     ),
+
                     showarrow=False,
+
+                    font=dict(
+                        size=12,
+                        color=LOAD_COLOR,
+                    ),
                 )
 
-            # ------------------------------------------------
-            # Moment
-            # ------------------------------------------------
+            # =================================================
+            # MOMENT
+            # =================================================
 
             elif load_type == "Moment":
 
@@ -1670,70 +2067,131 @@ with view_col:
                     load["magnitude"]
                 )
 
+                # ------------------------------------------------
+                # Moment symbol
+                # ------------------------------------------------
+
                 symbol = (
                     "↻"
                     if magnitude >= 0
                     else "↺"
                 )
 
+                # ------------------------------------------------
+                # Moment label
+                # ------------------------------------------------
+
                 fig.add_annotation(
                     x=x_load,
-                    y=0.7,
+                    y=0.65,
+
                     text=(
                         f"<b>{symbol} "
-                        f"{magnitude:.2f} kNm</b>"
-                        f"<br>{case_name}: "
+                        f"{magnitude:.2f} kNm</b><br>"
+                        f"{case_name}: "
                         f"{load['name']}"
                     ),
+
                     showarrow=False,
+
+                    font=dict(
+                        size=12,
+                        color=LOAD_COLOR,
+                    ),
                 )
 
+            # =================================================
+            # END LOAD TYPE
+            # =================================================
+
+    # ========================================================
+    # LAYOUT
+    # ========================================================
+
     fig.update_layout(
-        height=500,
+
+        height=550,
+
         margin=dict(
-            l=20,
-            r=20,
-            t=25,
-            b=25,
+            l=30,
+            r=30,
+            t=30,
+            b=30,
         ),
+
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+
+        # ----------------------------------------------------
+        # X AXIS
+        # ----------------------------------------------------
+
         xaxis=dict(
             visible=False,
+
             range=[
                 -0.10 * L,
                 1.10 * L,
             ],
+
+            fixedrange=True,
         ),
+
+        # ----------------------------------------------------
+        # Y AXIS
+        # ----------------------------------------------------
+
         yaxis=dict(
             visible=False,
+
             range=[
-                -1.8,
-                1.8,
+                -1.60,
+                1.60,
             ],
+
+            fixedrange=True,
         ),
+
+        # ----------------------------------------------------
+        # General
+        # ----------------------------------------------------
+
         showlegend=False,
+
+
     )
+
+    # ========================================================
+    # DISPLAY
+    # ========================================================
 
     st.plotly_chart(
         fig,
         use_container_width=True,
+
+        config={
+            "displayModeBar": False,
+        },
     )
 
-    # ========================================================
-    # CROSS SECTION
-    # ========================================================
+    # ============================================================
+    # CROSS SECTION PREVIEW
+    # ============================================================
 
-    st.markdown(
-        "#### Penampang Balok"
-    )
+    st.markdown("#### Penampang Balok")
+
+    sec = go.Figure()
+
+    # ------------------------------------------------------------
+    # Dimension in mm
+    # ------------------------------------------------------------
 
     bm = b * 1000
     hm = h * 1000
 
-    sec = go.Figure()
-
-    # --------------------------------------------------------
-    # Concrete
-    # --------------------------------------------------------
+    # ------------------------------------------------------------
+    # Concrete section
+    # ------------------------------------------------------------
 
     sec.add_shape(
         type="rect",
@@ -1745,36 +2203,17 @@ with view_col:
         fillcolor="rgba(180,180,180,0.18)",
     )
 
-    # --------------------------------------------------------
+    # ------------------------------------------------------------
     # Stirrup
-    # --------------------------------------------------------
+    # ------------------------------------------------------------
 
-    sx0 = (
-        cover
-        + stirrup_dia / 2
-    )
+    sx0 = cover + stirrup_dia / 2
+    sy0 = cover + stirrup_dia / 2
 
-    sy0 = (
-        cover
-        + stirrup_dia / 2
-    )
+    sx1 = bm - cover - stirrup_dia / 2
+    sy1 = hm - cover - stirrup_dia / 2
 
-    sx1 = (
-        bm
-        - cover
-        - stirrup_dia / 2
-    )
-
-    sy1 = (
-        hm
-        - cover
-        - stirrup_dia / 2
-    )
-
-    if (
-        sx1 > sx0
-        and sy1 > sy0
-    ):
+    if sx1 > sx0 and sy1 > sy0:
 
         sec.add_shape(
             type="rect",
@@ -1782,30 +2221,29 @@ with view_col:
             y0=sy0,
             x1=sx1,
             y1=sy1,
-            line=dict(width=2),
+            line=dict(
+                width=2,
+            ),
             fillcolor="rgba(0,0,0,0)",
         )
 
-    # --------------------------------------------------------
-    # Reinforcement
-    # --------------------------------------------------------
 
-    def add_bars(
-        n,
-        y,
-        label,
-    ):
+    # ------------------------------------------------------------
+    # Reinforcement
+    # ------------------------------------------------------------
+
+    def add_bars_mm(n, y, label):
 
         if n <= 0:
             return
 
-        x_left = (
+        xl = (
             cover
             + stirrup_dia
             + bar_dia / 2
         )
 
-        x_right = (
+        xr = (
             bm
             - cover
             - stirrup_dia
@@ -1814,29 +2252,21 @@ with view_col:
 
         if n == 1:
 
-            xs = [
-                bm / 2
-            ]
+            xs = [bm / 2]
 
-        elif x_right > x_left:
+        elif xr > xl:
 
             xs = np.linspace(
-                x_left,
-                x_right,
+                xl,
+                xr,
                 int(n),
             )
 
         else:
 
             xs = np.linspace(
-                max(
-                    bar_dia / 2,
-                    bm * 0.2,
-                ),
-                min(
-                    bm - bar_dia / 2,
-                    bm * 0.8,
-                ),
+                max(bar_dia / 2, bm * 0.2),
+                min(bm - bar_dia / 2, bm * 0.8),
                 int(n),
             )
 
@@ -1848,10 +2278,7 @@ with view_col:
                 marker=dict(
                     size=max(
                         7,
-                        min(
-                            18,
-                            bar_dia / 1.1,
-                        ),
+                        min(18, bar_dia / 1.1),
                     ),
                     symbol="circle",
                 ),
@@ -1864,53 +2291,251 @@ with view_col:
             )
         )
 
-    add_bars(
+
+    # Bottom reinforcement
+    add_bars_mm(
         n_bottom,
-        cover
-        + stirrup_dia
-        + bar_dia / 2,
+        cover + stirrup_dia + bar_dia / 2,
         "Tulangan bawah",
     )
 
-    add_bars(
+    # Top reinforcement
+    add_bars_mm(
         n_top,
-        hm
-        - cover
-        - stirrup_dia
-        - bar_dia / 2,
+        hm - cover - stirrup_dia - bar_dia / 2,
         "Tulangan atas",
     )
 
-    sec.update_layout(
-        height=430,
-        margin=dict(
-            l=20,
-            r=20,
-            t=20,
-            b=30,
+
+    # ============================================================
+    # DIMENSION — WIDTH b
+    # ============================================================
+
+    dim_y = -55
+
+    # Main dimension line
+    sec.add_shape(
+        type="line",
+        x0=0,
+        y0=dim_y,
+        x1=bm,
+        y1=dim_y,
+        line=dict(
+            width=1.5,
         ),
+    )
+
+    # Extension line kiri
+    sec.add_shape(
+        type="line",
+        x0=0,
+        y0=0,
+        x1=0,
+        y1=dim_y - 5,
+        line=dict(
+            width=1,
+        ),
+    )
+
+    # Extension line kanan
+    sec.add_shape(
+        type="line",
+        x0=bm,
+        y0=0,
+        x1=bm,
+        y1=dim_y - 5,
+        line=dict(
+            width=1,
+        ),
+    )
+
+    # Arrow kiri
+    sec.add_annotation(
+        x=0,
+        y=dim_y,
+        ax=12,
+        ay=dim_y,
+        text="",
+        showarrow=False,
+        arrowhead=2,
+        arrowsize=1,
+        arrowwidth=1.5,
+    )
+
+    # Arrow kanan
+    sec.add_annotation(
+        x=bm,
+        y=dim_y,
+        ax=bm - 12,
+        ay=dim_y,
+        text="",
+        showarrow=False,
+        arrowhead=2,
+        arrowsize=1,
+        arrowwidth=1.5,
+    )
+
+    # Label b
+    sec.add_annotation(
+        x=bm / 2,
+        y=dim_y - 22,
+        text=f"<b>b = {bm:.0f} mm</b>",
+        showarrow=False,
+    )
+
+
+    # ============================================================
+    # DIMENSION — HEIGHT h
+    # ============================================================
+
+    dim_x = -55
+
+    # Main dimension line
+    sec.add_shape(
+        type="line",
+        x0=dim_x,
+        y0=0,
+        x1=dim_x,
+        y1=hm,
+        line=dict(
+            width=1.5,
+        ),
+    )
+
+    # Extension line bawah
+    sec.add_shape(
+        type="line",
+        x0=0,
+        y0=0,
+        x1=dim_x - 5,
+        y1=0,
+        line=dict(
+            width=1,
+        ),
+    )
+
+    # Extension line atas
+    sec.add_shape(
+        type="line",
+        x0=0,
+        y0=hm,
+        x1=dim_x - 5,
+        y1=hm,
+        line=dict(
+            width=1,
+        ),
+    )
+
+    # Arrow bawah
+    sec.add_annotation(
+        x=dim_x,
+        y=0,
+        ax=dim_x,
+        ay=12,
+        text="",
+        showarrow=False,
+        arrowhead=2,
+        arrowsize=1,
+        arrowwidth=1.5,
+    )
+
+    # Arrow atas
+    sec.add_annotation(
+        x=dim_x,
+        y=hm,
+        ax=dim_x,
+        ay=hm - 12,
+        text="",
+        showarrow=False,
+        arrowhead=2,
+        arrowsize=1,
+        arrowwidth=1.5,
+    )
+
+    # Label h
+    sec.add_annotation(
+        x=dim_x - 25,
+        y=hm / 2,
+        text=f"<b>h = {hm:.0f} mm</b>",
+        textangle=-90,
+        showarrow=False,
+    )
+
+
+    # ============================================================
+    # LAYOUT
+    # ============================================================
+
+    # Beri ruang untuk dimensi
+    x_margin = max(80, bm * 0.15)
+    y_margin = max(100, hm * 0.15)
+
+    sec.update_layout(
+
+        height=430,
+
+        margin=dict(
+            l=70,
+            r=30,
+            t=20,
+            b=70,
+        ),
+
+        # Transparent background
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+
+        # Hilangkan axis sepenuhnya
         xaxis=dict(
-            title="Lebar b (mm)",
+            visible=False,
+            showgrid=False,
+            zeroline=False,
+            showticklabels=False,
+            ticks="",
+            fixedrange=True,
             range=[
-                -20,
-                bm + 20,
+                -x_margin,
+                bm + x_margin,
             ],
         ),
+
         yaxis=dict(
-            title="Tinggi h (mm)",
+            visible=False,
+            showgrid=False,
+            zeroline=False,
+            showticklabels=False,
+            ticks="",
+            fixedrange=True,
             range=[
-                -20,
-                hm + 20,
+                -y_margin,
+                hm + y_margin,
             ],
             scaleanchor="x",
             scaleratio=1,
         ),
-        showlegend=True,
+
+        showlegend=False,
+
+        # Nonaktifkan interaksi
+        dragmode=False,
+
+        hovermode=False,
     )
+
+
+    # ============================================================
+    # DISPLAY
+    # ============================================================
 
     st.plotly_chart(
         sec,
         use_container_width=True,
+        config={
+            "displayModeBar": False,
+            "scrollZoom": False,
+            "doubleClick": False,
+            "showTips": False,
+        },
     )
 
     # ========================================================
@@ -2042,6 +2667,9 @@ if st.session_state.results:
         st.plotly_chart(
             fig,
             use_container_width=True,
+            config={
+                        "displayModeBar": False,
+                    },
         )
 
     with tab_m:
@@ -2071,6 +2699,9 @@ if st.session_state.results:
         st.plotly_chart(
             fig,
             use_container_width=True,
+            config={
+                        "displayModeBar": False,
+                    },
         )
 
     with tab_d:
@@ -2100,6 +2731,9 @@ if st.session_state.results:
         st.plotly_chart(
             fig,
             use_container_width=True,
+            config={
+                        "displayModeBar": False,
+                    },
         )
 
     st.caption(
